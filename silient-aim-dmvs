@@ -1,0 +1,96 @@
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local Workspace = game:GetService("Workspace")
+local CoreGui = game:GetService("CoreGui")
+local Drawing = Drawing
+
+getgenv().SilentAim = {
+    Enabled = true,
+    FOV = 150,
+    Prediction = 100,
+    Part = "Head"
+}
+
+local fovCircle = Drawing.new("Circle")
+fovCircle.Thickness = 1.5
+fovCircle.Color = Color3.fromRGB(220, 20, 20)
+fovCircle.Filled = false
+fovCircle.Visible = false
+
+local function isEnemy(player)
+    if player == LocalPlayer then return false end
+    
+    local myTeam = LocalPlayer:GetAttribute("Team")
+    local targetTeam = player:GetAttribute("Team")
+    if myTeam and targetTeam then
+        return myTeam ~= targetTeam
+    end
+    
+    if LocalPlayer.Team and player.Team then
+        return LocalPlayer.Team ~= player.Team
+    end
+    
+    return false
+end
+
+local function getClosest()
+    local targetPart, targetPlayer, closest = nil, nil, getgenv().SilentAim.FOV
+    local Cam = Workspace.CurrentCamera
+    
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character and isEnemy(p) then
+            local char = p.Character
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            local part = char:FindFirstChild(getgenv().SilentAim.Part)
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            
+            if part and hrp and hum and hum.Health > 0 then
+                local ray = Ray.new(Cam.CFrame.Position, (part.Position - Cam.CFrame.Position).Unit * 500)
+                local hit, pos = Workspace:FindPartOnRayWithIgnoreList(ray, {LocalPlayer.Character, Cam})
+                
+                local isVisible = hit and hit:IsDescendantOf(char)
+                
+                if isVisible then
+                    local screenPos, onScreen = Cam:WorldToViewportPoint(part.Position)
+                    if onScreen then
+                        local mouseDist = (Vector2.new(screenPos.X, screenPos.Y) - Vector2.new(Cam.ViewportSize.X / 2, Cam.ViewportSize.Y / 2)).Magnitude
+                        if mouseDist < closest then
+                            closest = mouseDist
+                            targetPart = part
+                            targetPlayer = p
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return targetPart, targetPlayer
+end
+
+if hookmetamethod and checkcaller then
+    local oldIndex
+    oldIndex = hookmetamethod(game, "__index", function(self, index)
+        if not getgenv().SilentAim.Enabled or self ~= LocalPlayer:GetMouse() or index ~= "Hit" or checkcaller() then
+            return oldIndex(self, index)
+        end
+
+        local targetPart, targetPlayer = getClosest()
+        
+        if targetPart and targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            local predFactor = getgenv().SilentAim.Prediction / 100
+            return CFrame.new(targetPart.Position + targetPlayer.Character.HumanoidRootPart.AssemblyLinearVelocity * 0.08 * predFactor)
+        end
+
+        return oldIndex(self, index)
+    end)
+end
+
+Workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+    fovCircle.Position = Vector2.new(Workspace.CurrentCamera.ViewportSize.X / 2, Workspace.CurrentCamera.ViewportSize.Y / 2)
+end)
+
+game:GetService("RunService").RenderStepped:Connect(function()
+    fovCircle.Visible = getgenv().SilentAim.Enabled
+    fovCircle.Radius = getgenv().SilentAim.FOV
+    fovCircle.Position = Vector2.new(Workspace.CurrentCamera.ViewportSize.X / 2, Workspace.CurrentCamera.ViewportSize.Y / 2)
+end)
